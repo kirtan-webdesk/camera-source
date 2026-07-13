@@ -23,257 +23,429 @@ if (process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN) 
   });
 }
 
+// ---------------- VEHICLE DATASET (source of truth from vehicle_data.csv) ----------------
+// Structure: make → { model: [start_year, end_year] }
+const DATASET = {
+  "Audi":       { "A3":           [2015, 2020] },
+  "Buick":      { "Enclave":      [2014, 2018],
+                  "Encore":       [2014, 2018],
+                  "Regal":        [2013, 2018],
+                  "Verano":       [2013, 2015] },
+  "Cadillac":   { "ATS":          [2014, 2018],
+                  "CTS":          [2014, 2018],
+                  "ELR":          [2014, 2014],
+                  "Escalade":     [2014, 2018],
+                  "SRX":          [2014, 2018],
+                  "XTS":          [2014, 2018] },
+  "Chevrolet":  { "Avalanche":    [2002, 2012],
+                  "Camaro":       [2010, 2018],
+                  "Colorado":     [2015, 2026],
+                  "Corvette":     [2014, 2018],
+                  "Cruze":        [2013, 2018],
+                  "Equinox":      [2009, 2018],
+                  "Impala":       [2014, 2018],
+                  "Malibu":       [2013, 2018],
+                  "Silverado":    [1999, 2026],
+                  "Silverado HD": [1999, 2026],
+                  "Suburban":     [2007, 2018],
+                  "Tahoe":        [2007, 2018],
+                  "Traverse":     [2014, 2018],
+                  "Volt":         [2013, 2018] },
+  "Ford":       { "Bronco":       [2020, 2026],
+                  "Edge":         [2008, 2023],
+                  "Escape":       [2011, 2020],
+                  "Expedition":   [2011, 2026],
+                  "Explorer":     [2008, 2021],
+                  "F-150":        [2004, 2026],
+                  "Flex":         [2011, 2019],
+                  "Focus":        [2011, 2018],
+                  "Fusion":       [2011, 2021],
+                  "Maverick":     [2022, 2024],
+                  "Mustang":      [2011, 2021],
+                  "Ranger":       [2008, 2026],
+                  "Super Duty":   [1999, 2026] },
+  "Honda":      { "Civic":        [2012, 2013],
+                  "Odyssey":      [1999, 2017] },
+  "Jeep":       { "Wrangler":     [2007, 2018] },
+  "Ram":        { "1500":         [2003, 2026],
+                  "HD":           [2003, 2026] },
+  "Toyota":     { "Camry":        [2012, 2019],
+                  "Corolla":      [2012, 2017],
+                  "RAV4":         [2014, 2019],
+                  "Tacoma":       [2005, 2026],
+                  "Tundra":       [2007, 2026] },
+};
+
 // ---------------- SYSTEM PROMPT (must be declared before handler) ----------------
 const SYSTEM_PROMPT = `
-ROLE: You are an AI vehicle + product intent parser.
+You are the AI search engine for Camera Source — a specialty retailer of backup cameras,
+dash cameras, and vehicle camera systems for trucks, SUVs, and vans.
 
-GOAL: Convert a customer's plain-English query into structured vehicle data and determine if it matches supported products using strict normalization and dataset + product catalog validation.
+Your ONLY job is to parse a customer's plain-English query and return a single strict JSON object.
 
-OUTPUT (STRICT JSON ONLY):
+═══════════════════════════════════════════
+OUTPUT FORMAT (return NOTHING else):
 {"make":"","model":"","year":"","context":"IN"|"OUT"}
 
-RULES:
-- No extra text or explanation
-- If no vehicle found → {"make":null,"model":null,"year":null,"context":"OUT"}
-- If multiple vehicles → return FIRST clear make-model-year in reading order
-- If uncertain → return null fields and "OUT"
+• All fields are strings. Null/unknown fields → empty string "".
+• context "IN"  = vehicle + intent exist in the Camera Source catalog below.
+• context "OUT" = vehicle not in catalog, year out of range, intent unclear, or low confidence.
+═══════════════════════════════════════════
 
-YEAR:
-- Must be 4-digit (1980–current year)
-- If invalid/missing → year=null
-- Must ALSO fall within dataset range
+━━━━━━━━━━━━━━━━━━━━━━
+VEHICLE CATALOG (source of truth)
+━━━━━━━━━━━━━━━━━━━━━━
+ONLY the vehicles below are supported. Any make/model not listed → context = "OUT".
+Year must fall within the listed range (inclusive). Missing year is acceptable.
 
-SOURCE OF TRUTH:
-- You will be provided:
-  1. Vehicle dataset (make, model, year range)
-  2. Supported product catalog (Camera Source)
-- Use ONLY dataset values for make/model
-- NEVER invent values
-- Model MUST belong to selected make
+Make        | Model          | Years
+------------|----------------|----------
+Audi        | A3             | 2015–2020
+Buick       | Enclave        | 2014–2018
+Buick       | Encore         | 2014–2018
+Buick       | Regal          | 2013–2018
+Buick       | Verano         | 2013–2015
+Cadillac    | ATS            | 2014–2018
+Cadillac    | CTS            | 2014–2018
+Cadillac    | ELR            | 2014–2014
+Cadillac    | Escalade       | 2014–2018
+Cadillac    | SRX            | 2014–2018
+Cadillac    | XTS            | 2014–2018
+Chevrolet   | Avalanche      | 2002–2012
+Chevrolet   | Camaro         | 2010–2018
+Chevrolet   | Colorado       | 2015–2026
+Chevrolet   | Corvette       | 2014–2018
+Chevrolet   | Cruze          | 2013–2018
+Chevrolet   | Equinox        | 2009–2018
+Chevrolet   | Impala         | 2014–2018
+Chevrolet   | Malibu         | 2013–2018
+Chevrolet   | Silverado      | 1999–2026
+Chevrolet   | Silverado HD   | 1999–2026
+Chevrolet   | Suburban       | 2007–2018
+Chevrolet   | Tahoe          | 2007–2018
+Chevrolet   | Traverse       | 2014–2018
+Chevrolet   | Volt           | 2013–2018
+Ford        | Bronco         | 2020–2026
+Ford        | Edge           | 2008–2023
+Ford        | Escape         | 2011–2020
+Ford        | Expedition     | 2011–2026
+Ford        | Explorer       | 2008–2021
+Ford        | F-150          | 2004–2026
+Ford        | Flex           | 2011–2019
+Ford        | Focus          | 2011–2018
+Ford        | Fusion         | 2011–2021
+Ford        | Maverick       | 2022–2024
+Ford        | Mustang        | 2011–2021
+Ford        | Ranger         | 2008–2026
+Ford        | Super Duty     | 1999–2026
+Honda       | Civic          | 2012–2013
+Honda       | Odyssey        | 1999–2017
+Jeep        | Wrangler       | 2007–2018
+Ram         | 1500           | 2003–2026
+Ram         | HD             | 2003–2026
+Toyota      | Camry          | 2012–2019
+Toyota      | Corolla        | 2012–2017
+Toyota      | RAV4           | 2014–2019
+Toyota      | Tacoma         | 2005–2026
+Toyota      | Tundra         | 2007–2026
 
-NORMALIZATION:
+━━━━━━━━━━━━━━━━━━━━━━
+MAKE NORMALIZATION
+━━━━━━━━━━━━━━━━━━━━━━
+Map typos/variations to the canonical make. If not mappable → make = "".
 
-MAKE:
-- audi, auddi, audy, adi → Audi
-- buick, buik, buickk, buic → Buick
-- cadillac, cadilac, cadillac, cadillak, cadilak, caddilac, caddy → Cadillac
-- chev, chevy, chevro, chevrolet, cheverlet, chevyet, chevorlet, chevrolett, chevrlet → Chevrolet
-- chrysler, crysler, chryslar, chrisler, chrysler, chryslr → Chrysler
-- dodge, dodg, doodge, dogde → Dodge
-- ford, foord, fard, fordd → Ford
-- gmc, g m c, gmcc, jmc → GMC
-- honda, hnda, hondda, hoda → Honda
-- jeep, jep, jeeep, jeap → Jeep
-- lincoln, lincon, linclon, lincolnn → Lincoln
-- ram, ramm, raam → Ram
-- scion, scionn, scionn, sion → Scion
-- subaru, subru, subaru, subaruu, subruu → Subaru
-- toyota, toyta, toyyota, toiyota, toyotaa → Toyota
+Audi      : audi, auddi, audy, adi
+Buick     : buick, buik, buickk, buic
+Cadillac  : cadillac, cadilac, cadillak, cadilak, caddilac, caddy
+Chevrolet : chev, chevy, chevro, cheverlet, chevyet, chevorlet, chevrolett, chevrlet
+Ford      : ford, foord, fard, fordd
+Honda     : honda, hnda, hondda, hoda
+Jeep      : jeep, jep, jeeep, jeap
+Ram       : ram, ramm, raam, dodge ram
+Toyota    : toyota, toyta, toyyota, toiyota, toyotaa
 
+━━━━━━━━━━━━━━━━━━━━━━
+MODEL NORMALIZATION
+━━━━━━━━━━━━━━━━━━━━━━
+The model MUST belong to the identified make (see catalog above).
 
-MODEL:
-- a3, a-3, a 3 → A3
-- enclave, enclav, enclve → Enclave
-- encore, encor, encoore → Encore
-- regal, regall, regal → Regal
-- verano, verno, veranno → Verano
-- ats, a t s, atss → ATS
-- cts, c t s, ctss → CTS
-- elr, e l r, elrr → ELR
-- escalade, escalad, escalede, escaladde → Escalade
-- srx, s r x, srxx → SRX
-- xts, x t s, xtss → XTS
-- avalanche, avalanch, avalance → Avalanche
-- cab & chassis, cab and chassis, cab n chassis, cab chassis → Cab & Chassis
-- camaro, camero, camarro → Camaro
-- colorado, colorodo, colarado → Colorado
-- corvette, corvet, corvett → Corvette
-- cruze, cruz, cruzee → Cruze
-- equinox, equniox, equinoxx → Equinox
-- impala, impalla, inpala → Impala
-- malibu, malbo, malibuu → Malibu
-- silverado, silveredo, silverdao → Silverado
-- silverado hd, silveradohd, silverado h d, silverado heavy duty → Silverado HD
-- suburban, suburbun, suberban → Suburban
-- tahoe, taho, tahoee → Tahoe
-- traverse, travers, travarse → Traverse
-- volt, voltt, voolt → Volt
-- 200, two hundred → 200
-- 300, three hundred → 300
-- aspen, asspen, aspen → Aspen
-- sebring, sebrng, seabring → Sebring
-- town and country, town & country, town n country, town country → Town and Country
-- avenger, avengar, avenjer → Avenger
-- caliber, calibar, caliberr → Caliber
-- challenger, chalenger, challanger → Challenger
-- charger, chargar, charjer → Charger
-- dakota, dakotta, dakoda → Dakota
-- durango, durengo, durango → Durango
-- grand caravan, grand carvan, grand caravan, grandcaravan → Grand Caravan
-- journey, jurney, journy → Journey
-- magnum, magnam, magnom → Magnum
-- nitro, nitroo, nytro → Nitro
-- srt viper, srtviper, srt-viper, viper srt → SRT Viper
-- bronco, bronko, broncco → Bronco
-- c-max, c max, cmax, c-maxx → C-Max
-- edge, edg, edgee → Edge
-- escape, escpe, esacpe → Escape
-- expedition, expidition, expedtion → Expedition
-- explorer, exploror, explorrer → Explorer
-- f-150, f150, f 150, f-15o → F-150
-- flex, flexx, flecks → Flex
-- focus, focuss, foccus → Focus
-- fusion, fussion, fuson → Fusion
-- maverick, maverik, maveric → Maverick
-- mustang, mustng, mustan → Mustang
-- ranger, rangar, renger → Ranger
-- super duty, superduty, super dutyy → Super Duty
-- taurus, tauras, tauruss → Taurus
-- canyon, cannyon, canion → Canyon
-- sierra, sieraa, sierrra → Sierra
-- sierra hd, sierrahd, sierra h d, sierra heavy duty → Sierra HD
-- terrain, terrian, terrrain → Terrain
-- yukon, yukonn, yukan → Yukon
-- civic, civc, civicc → Civic
-- odyssey, oddysey, odessy → Odyssey
-- cherokee, cheroke, cheroakee → Cherokee
-- commander, comandar, commender → Commander
-- compass, compas, compasss → Compass
-- gladiator, gladiater, gladitor → Gladiator
-- grand cherokee, grand cheroke, grand cheroakee → Grand Cherokee
-- liberty, liberti, libarty → Liberty
-- patriot, patriat, patriott → Patriot
-- wrangler, wranglr, wrengler → Wrangler
-- mkc, m k c, mkcc → MKC
-- mks, m k s, mkss → MKS
-- mkt, m k t, mktt → MKT
-- mkx, m k x, mkxx → MKX
-- mkz, m k z, mkzz → MKZ
-- 1500, fifteen hundred → 1500
-- hd, h d, hdd → HD
-- fr-s, frs, fr s, f-r-s → FR-S
-- iq, i q, iqq → iQ
-- tc, t c, tcc → tC
-- xb, x b, xbb → xB
-- brz, b r z, brzz → BRZ
-- legacy, legasy, legaci → Legacy
-- outback, outbak, outbackk → Outback
-- 4runner, 4 runner, four runner, 4runnr → 4Runner
-- avalon, avalan, avalonn → Avalon
-- camry, camary, camryy → Camry
-- corolla, corola, corrolla → Corolla
-- highlander, highlender, highlandr → Highlander
-- matrix, mattrix, matrx → Matrix
-- prius, prius, prious → Prius
-- rav4, rav 4, rav-4, r4v → RAV4
-- sequoia, sequoiaa, sequioa → Sequoia
-- sienna, siena, siennaa → Sienna
-- tacoma, tacma, tacooma → Tacoma
-- tundra, tundera, tundraa → Tundra
-- venza, venzaa, vensa → Venza
+AUDI        : a3, a-3, a 3 → A3
+BUICK       : enclave/enclav/enclve → Enclave | encore/encor → Encore
+              regal/regall → Regal | verano/verno/veranno → Verano
+CADILLAC    : ats/a t s → ATS | cts/c t s → CTS | elr → ELR
+              escalade/escalad/escalede → Escalade | srx/s r x → SRX | xts/x t s → XTS
+CHEVROLET   : avalanche/avalanch → Avalanche | camaro/camero/camarro → Camaro
+              colorado/colorodo/colarado → Colorado | corvette/corvet → Corvette
+              cruze/cruz → Cruze | equinox/equniox → Equinox | impala/impalla → Impala
+              malibu/malbu → Malibu | silverado/silveredo/silverdao → Silverado
+              silverado hd/silveradohd/silverado heavy duty → Silverado HD
+              suburban/suburbun → Suburban | tahoe/taho → Tahoe
+              traverse/travers/travarse → Traverse | volt/voltt → Volt
+FORD        : f-150/f150/f 150/f-15o → F-150
+              f-250/f250/f-350/f350 → Super Duty (F-250/F-350 map to Super Duty)
+              super duty/superduty → Super Duty | bronco/bronko → Bronco
+              edge/edgee → Edge | escape/escpe/esacpe → Escape
+              expedition/expidition → Expedition | explorer/exploror → Explorer
+              flex/flexx → Flex | focus/focuss → Focus | fusion/fussion → Fusion
+              maverick/maverik → Maverick | mustang/mustng → Mustang
+              ranger/rangar → Ranger
+HONDA       : civic/civc → Civic | odyssey/oddysey/odessy → Odyssey
+JEEP        : wrangler/wranglr/wrengler → Wrangler
+RAM         : 1500/fifteen hundred → 1500 | hd/h d/heavy duty → HD
+              ram hd/ram heavy → HD | 2500/3500 → HD
+TOYOTA      : camry/camary/camryy → Camry | corolla/corola → Corolla
+              rav4/rav 4/rav-4/r4v → RAV4 | tacoma/tacma/tacooma → Tacoma
+              tundra/tundera/tundraa → Tundra
 
+━━━━━━━━━━━━━━━━━━━━━━
+CAMERA SOURCE PRODUCT INTENT
+━━━━━━━━━━━━━━━━━━━━━━
+At least ONE of these must be present in the query for context = "IN":
 
-PRODUCT INTENT NORMALIZATION:
-- camera, backup camera, rear camera → camera
-- mirror, side mirror → mirror
-- tailgate, tail gate → tailgate
-- Ignore unrelated words
-- Extract intent only if clearly product-related
+backup camera, rear camera, reverse camera, back up camera, back-up camera
+dash cam, dashcam, dash camera, front camera, windshield camera
+side camera, blind spot camera
+tailgate camera, tail gate camera, tailgate cam, tailgate
+bed camera, truck bed camera, cargo camera
+mirror camera, rearview mirror camera, mirror monitor, mirror
+360 camera, surround view, 360 view, bird's eye
+parking sensor, park sensor, proximity sensor, reverse sensor
+monitor, display, backup monitor
+wiring harness, harness, wire kit, wiring kit, cable kit
+LVDS, lvds cable, lvds harness
+mount, bracket, camera mount, camera bracket
+OEM replacement, factory replacement, OEM camera
+plug and play, plug n play
+camera, cam, backup, reverse
 
-FUZZY MATCHING:
-- Fix minor typos (chevrlet → Chevrolet, silvarado → Silverado)
-- Only apply if high confidence
-- If ambiguous → return null fields
+If NO product intent is found → context = "OUT".
 
-PROCESS:
-- Ignore punctuation/case
-- Extract vehicle (make, model, year)
-- Extract product intent
-- Normalize → Validate → Output
+━━━━━━━━━━━━━━━━━━━━━━
+CONTEXT RULES
+━━━━━━━━━━━━━━━━━━━━━━
+context = "IN" ONLY WHEN ALL of the following are true:
+  1. make is in the Vehicle Catalog above
+  2. model belongs to that make in the catalog
+  3. year is within the model's year range OR year is empty (acceptable)
+  4. at least one product intent keyword is present
 
-VALIDATION:
+context = "OUT" WHEN ANY of the following:
+  • make not in catalog (e.g. GMC, Dodge, Nissan, Lincoln, Subaru are NOT supported)
+  • model not in catalog for that make
+  • year provided but outside the model's year range
+  • no product intent found
+  • query is vague, non-vehicle, or confidence is low
 
-context="IN" ONLY IF:
-- make exists in dataset
-- model exists for that make
-- year is valid AND within dataset range
-- vehicle is supported by product catalog for extracted intent
+━━━━━━━━━━━━━━━━━━━━━━
+PROCESSING ORDER
+━━━━━━━━━━━━━━━━━━━━━━
+1. Lowercase and strip punctuation.
+2. Extract year (4-digit, 1990–present).
+3. Normalise make → check catalog.
+4. Normalise model → verify it belongs to the make in catalog.
+5. Check year range for that make+model.
+6. Extract product intent.
+7. Apply context rule → return JSON only.
 
-context="OUT" IF:
-- no vehicle found OR
-- make/model not in dataset OR
-- model does not belong to make OR
-- year invalid or out of range OR
-- vehicle not supported by product catalog OR
-- product intent missing/unclear OR
-- confidence is low
+EXAMPLES
+Query: "backup camera for my 2015 Chevrolet Silverado"
+→ {"make":"Chevrolet","model":"Silverado","year":"2015","context":"IN"}
 
-FINAL:
-- OUT must represent: invalid vehicle OR unsupported product OR unclear query
-- RETURN ONLY JSON
+Query: "does my 2019 Ford F150 have a reverse camera?"
+→ {"make":"Ford","model":"F-150","year":"2019","context":"IN"}
+
+Query: "tailgate cam for chevy silverado"
+→ {"make":"Chevrolet","model":"Silverado","year":"","context":"IN"}
+
+Query: "backup camera for 2022 GMC Sierra"
+→ {"make":"GMC","model":"Sierra","year":"2022","context":"OUT"}  ← GMC not in catalog
+
+Query: "best camera for camping"
+→ {"make":"","model":"","year":"","context":"OUT"}
+
+Query: "2025 Toyota Camry backup camera"
+→ {"make":"Toyota","model":"Camry","year":"2025","context":"OUT"}  ← 2025 outside Camry's 2012–2019 range
 `;
 
-// ---------------- NORMALIZATION MAPS ----------------
+// ---------------- NORMALIZATION MAPS (trimmed to DATASET makes/models only) ----------------
 
 const MAKE_MAP = {
-  "gmc":        "GM",
-  "chevrolet":  "GM",
-  "chevy":      "GM",
-  "gm":         "GM",
-  "ram":        "RAM",
-  "dodge ram":  "RAM",
-  "ford":       "Ford",
-  "jeep":       "Jeep",
-  "dodge":      "Dodge",
-  "chrysler":   "Chrysler",
-  "honda":      "Honda",
-  "subaru":     "Subaru",
-  "audi":       "Audi",
-  "buick":      "Buick",
-  "mazda":      "Mazda",
-  "mercedes":   "Mercedes",
-  "toyota":     "Toyota"
+  // Audi
+  "audi": "Audi", "auddi": "Audi", "audy": "Audi", "adi": "Audi",
+  // Buick
+  "buick": "Buick", "buik": "Buick", "buickk": "Buick", "buic": "Buick",
+  // Cadillac
+  "cadillac": "Cadillac", "cadilac": "Cadillac", "cadillak": "Cadillac",
+  "cadilak": "Cadillac", "caddilac": "Cadillac", "caddy": "Cadillac",
+  // Chevrolet (never "GM")
+  "chevrolet": "Chevrolet", "chev": "Chevrolet", "chevy": "Chevrolet",
+  "chevro": "Chevrolet", "cheverlet": "Chevrolet", "chevyet": "Chevrolet",
+  "chevorlet": "Chevrolet", "chevrolett": "Chevrolet", "chevrlet": "Chevrolet",
+  // Ford
+  "ford": "Ford", "foord": "Ford", "fard": "Ford", "fordd": "Ford",
+  // Honda
+  "honda": "Honda", "hnda": "Honda", "hondda": "Honda", "hoda": "Honda",
+  // Jeep
+  "jeep": "Jeep", "jep": "Jeep", "jeeep": "Jeep", "jeap": "Jeep",
+  // Ram (Dodge Ram resolves to Ram)
+  "ram": "Ram", "ramm": "Ram", "raam": "Ram", "dodge ram": "Ram",
+  // Toyota
+  "toyota": "Toyota", "toyta": "Toyota", "toyyota": "Toyota",
+  "toiyota": "Toyota", "toyotaa": "Toyota",
 };
 
 const MODEL_MAP = {
-  "sierra":      "Sierra",
-  "silverado":   "Silverado",
-  "1500":        "1500",
-  "2500":        "2500",
-  "3500":        "3500",
-  "f150":        "F-150",
-  "f-150":       "F-150",
-  "super duty":  "Super Duty",
-  "f-250":       "Super Duty",
-  "f-350":       "Super Duty",
-  "ranger":      "Ranger",
-  "colorado":    "Colorado",
-  "canyon":      "Canyon",
-  "tacoma":      "Tacoma",
-  "tundra":      "Tundra"
+  // AUDI
+  "a3": "A3", "a-3": "A3", "a 3": "A3",
+  // BUICK
+  "enclave": "Enclave", "enclav": "Enclave", "enclve": "Enclave",
+  "encore": "Encore", "encor": "Encore", "encoore": "Encore",
+  "regal": "Regal", "regall": "Regal",
+  "verano": "Verano", "verno": "Verano", "veranno": "Verano",
+  // CADILLAC
+  "ats": "ATS", "a t s": "ATS",
+  "cts": "CTS", "c t s": "CTS",
+  "elr": "ELR",
+  "escalade": "Escalade", "escalad": "Escalade", "escalede": "Escalade", "escaladde": "Escalade",
+  "srx": "SRX", "s r x": "SRX",
+  "xts": "XTS", "x t s": "XTS",
+  // CHEVROLET
+  "avalanche": "Avalanche", "avalanch": "Avalanche", "avalance": "Avalanche",
+  "camaro": "Camaro", "camero": "Camaro", "camarro": "Camaro",
+  "colorado": "Colorado", "colorodo": "Colorado", "colarado": "Colorado",
+  "corvette": "Corvette", "corvet": "Corvette", "corvett": "Corvette",
+  "cruze": "Cruze", "cruz": "Cruze", "cruzee": "Cruze",
+  "equinox": "Equinox", "equniox": "Equinox", "equinoxx": "Equinox",
+  "impala": "Impala", "impalla": "Impala", "inpala": "Impala",
+  "malibu": "Malibu", "malbu": "Malibu", "malibuu": "Malibu",
+  "silverado": "Silverado", "silveredo": "Silverado", "silverdao": "Silverado", "silvrado": "Silverado",
+  "silverado hd": "Silverado HD", "silveradohd": "Silverado HD", "silverado heavy duty": "Silverado HD",
+  "suburban": "Suburban", "suburbun": "Suburban", "suberban": "Suburban",
+  "tahoe": "Tahoe", "taho": "Tahoe", "tahoee": "Tahoe",
+  "traverse": "Traverse", "travers": "Traverse", "travarse": "Traverse",
+  "volt": "Volt", "voltt": "Volt", "voolt": "Volt",
+  // FORD
+  "f-150": "F-150", "f150": "F-150", "f 150": "F-150", "f-15o": "F-150",
+  "super duty": "Super Duty", "superduty": "Super Duty", "super dutyy": "Super Duty",
+  "f-250": "Super Duty", "f250": "Super Duty", "f-350": "Super Duty", "f350": "Super Duty",
+  "bronco": "Bronco", "bronko": "Bronco", "broncco": "Bronco",
+  "edge": "Edge", "edg": "Edge", "edgee": "Edge",
+  "escape": "Escape", "escpe": "Escape", "esacpe": "Escape",
+  "expedition": "Expedition", "expidition": "Expedition", "expedtion": "Expedition",
+  "explorer": "Explorer", "exploror": "Explorer", "explorrer": "Explorer",
+  "flex": "Flex", "flexx": "Flex", "flecks": "Flex",
+  "focus": "Focus", "focuss": "Focus", "foccus": "Focus",
+  "fusion": "Fusion", "fussion": "Fusion", "fuson": "Fusion",
+  "maverick": "Maverick", "maverik": "Maverick", "maveric": "Maverick",
+  "mustang": "Mustang", "mustng": "Mustang", "mustan": "Mustang",
+  "ranger": "Ranger", "rangar": "Ranger", "renger": "Ranger",
+  // HONDA
+  "civic": "Civic", "civc": "Civic", "civicc": "Civic",
+  "odyssey": "Odyssey", "oddysey": "Odyssey", "odessy": "Odyssey",
+  // JEEP
+  "wrangler": "Wrangler", "wranglr": "Wrangler", "wrengler": "Wrangler",
+  // RAM
+  "1500": "1500", "fifteen hundred": "1500",
+  "hd": "HD", "h d": "HD", "heavy duty": "HD",
+  "ram hd": "HD", "2500": "HD", "3500": "HD",
+  // TOYOTA
+  "camry": "Camry", "camary": "Camry", "camryy": "Camry",
+  "corolla": "Corolla", "corola": "Corolla", "corrolla": "Corolla",
+  "rav4": "RAV4", "rav 4": "RAV4", "rav-4": "RAV4", "r4v": "RAV4",
+  "tacoma": "Tacoma", "tacma": "Tacoma", "tacooma": "Tacoma",
+  "tundra": "Tundra", "tundera": "Tundra", "tundraa": "Tundra",
 };
 
 const KEYWORDS = {
-  "relocate":       "relocation",
-  "move":           "relocation",
-  "reposition":     "relocation",
-  "tailgate":       "tailgate",
-  "cargo":          "cargo",
-  "mirror":         "mirror",
-  "360":            "360",
-  "surround":       "surround",
-  "lvds":           "LVDS",
-  "adjustable":     "adjustable",
-  "fixed":          "fixed",
-  "plug and play":  "plug and play",
-  "universal":      "universal",
-  "camper":         "camper",
-  "factory":        "factory",
-  "oem":            "OEM",
-  "replacement":    "replacement",
-  "trailer":        "trailer",
-  "license plate":  "license plate",
-  "topper":         "topper"
+  // Backup / rear camera
+  "backup camera":       "backup camera",
+  "back up camera":      "backup camera",
+  "back-up camera":      "backup camera",
+  "rear camera":         "backup camera",
+  "reverse camera":      "backup camera",
+  "reversing camera":    "backup camera",
+  "rearview camera":     "backup camera",
+  // Dash cam
+  "dash cam":            "dash camera",
+  "dashcam":             "dash camera",
+  "dash camera":         "dash camera",
+  "front camera":        "dash camera",
+  "windshield camera":   "dash camera",
+  // Tailgate / cargo
+  "tailgate camera":     "tailgate camera",
+  "tailgate cam":        "tailgate camera",
+  "tailgate":            "tailgate camera",
+  "tail gate":           "tailgate camera",
+  "cargo camera":        "cargo camera",
+  "bed camera":          "cargo camera",
+  "truck bed camera":    "cargo camera",
+  "cargo area":          "cargo camera",
+  // Side / blind spot
+  "side camera":         "side camera",
+  "blind spot":          "side camera",
+  "flank camera":        "side camera",
+  // Mirror cam
+  "mirror camera":       "mirror camera",
+  "mirror cam":          "mirror camera",
+  "rearview mirror":     "mirror camera",
+  "mirror monitor":      "mirror camera",
+  "mirror":              "mirror camera",
+  // 360 / surround
+  "360":                 "360 system",
+  "surround view":       "360 system",
+  "bird's eye":          "360 system",
+  "360 view":            "360 system",
+  "surround":            "360 system",
+  // Monitor / display
+  "monitor":             "monitor",
+  "display":             "monitor",
+  "screen":              "monitor",
+  "backup monitor":      "monitor",
+  // Parking sensors
+  "parking sensor":      "parking sensor",
+  "park sensor":         "parking sensor",
+  "proximity sensor":    "parking sensor",
+  "reverse sensor":      "parking sensor",
+  // Wiring / harness
+  "wiring harness":      "wiring harness",
+  "wire harness":        "wiring harness",
+  "wiring kit":          "wiring harness",
+  "wire kit":            "wiring harness",
+  "cable kit":           "wiring harness",
+  "harness":             "wiring harness",
+  // LVDS
+  "lvds":                "LVDS",
+  "lvds cable":          "LVDS",
+  "lvds harness":        "LVDS",
+  // Mount / bracket
+  "mount":               "mount",
+  "bracket":             "mount",
+  "camera mount":        "mount",
+  "camera bracket":      "mount",
+  // OEM / plug-and-play
+  "oem replacement":     "OEM replacement",
+  "factory replacement": "OEM replacement",
+  "oem camera":          "OEM replacement",
+  "oem":                 "OEM replacement",
+  "plug and play":       "plug and play",
+  "plug n play":         "plug and play",
+  "universal":           "universal",
+  "universal fit":       "universal",
+  // Product action verbs
+  "relocate":            "relocation",
+  "reposition":          "relocation",
+  "move":                "relocation",
+  "install":             "installation",
+  "replace":             "replacement",
+  "replacement":         "replacement",
+  // Accessory
+  "trailer":             "trailer",
+  "towing":              "towing",
+  "license plate":       "license plate",
+  "topper":              "topper",
+  "camper":              "camper",
+  "adjustable":          "adjustable",
+  "fixed":               "fixed",
 };
 
 // ---------------- FUZZY MATCH ----------------
@@ -426,11 +598,24 @@ export default async function handler(req, res) {
     }
 
     // ---------------- POST-NORMALIZE ----------------
-    // Note: new prompt keeps GMC as GMC (not merged to GM).
-    // MAKE_MAP still applied for fallback parser results.
     if (usedFallback) {
       fields.make  = MAKE_MAP[fields.make?.toLowerCase()]  || fields.make;
       fields.model = MODEL_MAP[fields.model?.toLowerCase()] || fields.model;
+    }
+
+    // ---------------- SERVER-SIDE DATASET VALIDATION ----------------
+    // Second line of defence: even if AI returns "IN", reject if make/model/year
+    // don't exist in DATASET. Prevents hallucinated catalog matches reaching the frontend.
+    if (fields.context === "IN" && fields.make && fields.model) {
+      const makeEntry  = DATASET[fields.make];
+      const modelEntry = makeEntry ? makeEntry[fields.model] : null;
+      if (!makeEntry || !modelEntry) {
+        fields.context = "OUT";
+      } else if (fields.year) {
+        const yr = parseInt(fields.year, 10);
+        const [start, end] = modelEntry;
+        if (yr < start || yr > end) fields.context = "OUT";
+      }
     }
 
     // ---------------- BUILD SEARCH STRING ----------------

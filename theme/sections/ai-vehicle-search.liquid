@@ -1,0 +1,789 @@
+{%- comment -%}
+  Section: AI Vehicle Search Drawer
+  Phase 3 — Camera Source Shopify Horizon Theme
+  Renders: vertical tab, search-bar trigger, and right-side drawer with all states.
+  Requires: Vercel endpoint set in section settings.
+{%- endcomment -%}
+
+{%- assign api_url = section.settings.api_url -%}
+{%- assign example_query = section.settings.example_query | default: "I'm looking to relocate the rear view mirror camera from the factory installed third brake light to the back of the truck on my 2024 GMC Sierra" -%}
+
+<style>
+  /* ── FONTS ── */
+  @import url('https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800&display=swap');
+
+  /* ── TOKENS ── */
+  :root {
+    --cs-dark:      #1F1F1F;
+    --cs-darker:    #141414;
+    --cs-panel:     #1A1A1A;
+    --cs-border:    rgba(255,255,255,0.1);
+    --cs-red:       #892F21;
+    --cs-red-hover: #A03828;
+    --cs-green:     #22C55E;
+    --cs-white:     #FFFFFF;
+    --cs-muted:     rgba(255,255,255,0.5);
+    --cs-input-bg:  #252525;
+    --cs-drawer-w:  430px;
+    --cs-font:      'Archivo', -apple-system, BlinkMacSystemFont, sans-serif;
+  }
+
+  /* ── OVERLAY ── */
+  .cs-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.55);
+    z-index: 9998;
+    opacity: 0;
+    transition: opacity 0.25s ease;
+  }
+  .cs-overlay.is-open {
+    display: block;
+    opacity: 1;
+  }
+
+  /* ── DRAWER ── */
+  .cs-drawer {
+    position: fixed;
+    top: 0;
+    right: 0;
+    width: var(--cs-drawer-w);
+    max-width: 100vw;
+    height: 100%;
+    background: var(--cs-panel);
+    z-index: 9999;
+    transform: translateX(100%);
+    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    display: flex;
+    flex-direction: column;
+    font-family: var(--cs-font);
+    overflow-y: auto;
+  }
+  .cs-drawer.is-open {
+    transform: translateX(0);
+  }
+
+  /* ── DRAWER HEADER ── */
+  .cs-drawer__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 20px 24px 16px;
+    flex-shrink: 0;
+  }
+  .cs-drawer__label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-family: var(--cs-font);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--cs-muted);
+  }
+  .cs-drawer__dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--cs-green);
+    flex-shrink: 0;
+  }
+  .cs-drawer__close {
+    position: relative;
+    width: 32px;
+    height: 32px;
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: var(--cs-white);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+  }
+  /* Corner brackets */
+  .cs-drawer__close::before,
+  .cs-drawer__close::after {
+    content: '';
+    position: absolute;
+    width: 10px;
+    height: 10px;
+    border-color: rgba(255,255,255,0.4);
+    border-style: solid;
+  }
+  .cs-drawer__close::before {
+    top: 0; left: 0;
+    border-width: 1px 0 0 1px;
+  }
+  .cs-drawer__close::after {
+    bottom: 0; right: 0;
+    border-width: 0 1px 1px 0;
+  }
+  .cs-drawer__close svg {
+    width: 14px;
+    height: 14px;
+    flex-shrink: 0;
+  }
+  .cs-drawer__close:hover svg { opacity: 0.7; }
+
+  /* ── DRAWER BODY ── */
+  .cs-drawer__body {
+    padding: 8px 24px 32px;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+  }
+  .cs-drawer__heading {
+    font-family: var(--cs-font);
+    font-size: 26px;
+    font-weight: 800;
+    color: var(--cs-white);
+    line-height: 1.15;
+    margin: 0 0 10px;
+    text-wrap: balance;
+  }
+  .cs-drawer__subtext {
+    font-family: var(--cs-font);
+    font-size: 13.5px;
+    color: var(--cs-muted);
+    line-height: 1.6;
+    margin: 0 0 20px;
+  }
+
+  /* ── TEXTAREA ── */
+  .cs-textarea-wrap {
+    position: relative;
+    margin-bottom: 12px;
+  }
+  .cs-textarea {
+    width: 100%;
+    min-height: 120px;
+    background: var(--cs-input-bg);
+    border: 1px solid var(--cs-border);
+    border-radius: 4px;
+    color: var(--cs-white);
+    font-family: var(--cs-font);
+    font-size: 14px;
+    line-height: 1.55;
+    padding: 14px 16px;
+    resize: vertical;
+    outline: none;
+    transition: border-color 0.2s;
+    box-sizing: border-box;
+  }
+  .cs-textarea::placeholder { color: rgba(255,255,255,0.28); }
+  .cs-textarea:focus { border-color: rgba(255,255,255,0.3); }
+
+  /* ── CTA BUTTON ── */
+  .cs-btn-primary {
+    width: 100%;
+    padding: 15px 20px;
+    background: var(--cs-red);
+    color: var(--cs-white);
+    border: none;
+    border-radius: 4px;
+    font-family: var(--cs-font);
+    font-size: 15px;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    cursor: pointer;
+    transition: background 0.2s;
+    margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+  }
+  .cs-btn-primary:hover:not(:disabled) { background: var(--cs-red-hover); }
+  .cs-btn-primary:disabled { opacity: 0.6; cursor: not-allowed; }
+
+  /* ── EXAMPLE CHIPS ── */
+  .cs-chips {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-bottom: 24px;
+  }
+  .cs-chip {
+    background: transparent;
+    border: 1px solid rgba(255,255,255,0.18);
+    border-radius: 100px;
+    color: rgba(255,255,255,0.6);
+    font-family: 'Courier New', Courier, monospace;
+    font-size: 12px;
+    padding: 7px 16px;
+    cursor: pointer;
+    text-align: left;
+    transition: border-color 0.2s, color 0.2s;
+  }
+  .cs-chip:hover {
+    border-color: rgba(255,255,255,0.4);
+    color: var(--cs-white);
+  }
+
+  /* ── DIVIDER ── */
+  .cs-divider {
+    border: none;
+    border-top: 1px solid var(--cs-border);
+    margin: 4px 0 20px;
+  }
+
+  /* ── LOADING STATE ── */
+  .cs-loading {
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 40px 0;
+    gap: 16px;
+  }
+  .cs-loading.is-visible { display: flex; }
+  .cs-spinner {
+    width: 36px;
+    height: 36px;
+    border: 3px solid rgba(255,255,255,0.1);
+    border-top-color: var(--cs-red);
+    border-radius: 50%;
+    animation: cs-spin 0.7s linear infinite;
+  }
+  @keyframes cs-spin { to { transform: rotate(360deg); } }
+  .cs-loading__text {
+    font-family: var(--cs-font);
+    font-size: 13px;
+    color: var(--cs-muted);
+  }
+
+  /* ── RESULTS STATE ── */
+  .cs-results { display: none; }
+  .cs-results.is-visible { display: block; }
+  .cs-results__summary {
+    font-family: var(--cs-font);
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--cs-muted);
+    margin-bottom: 14px;
+  }
+  .cs-results__summary span { color: var(--cs-white); }
+  .cs-product-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-bottom: 20px;
+  }
+  .cs-product-card {
+    display: flex;
+    gap: 14px;
+    background: var(--cs-input-bg);
+    border: 1px solid var(--cs-border);
+    border-radius: 4px;
+    padding: 12px;
+    text-decoration: none;
+    transition: border-color 0.2s;
+  }
+  .cs-product-card:hover { border-color: rgba(255,255,255,0.25); }
+  .cs-product-card__img {
+    width: 72px;
+    height: 72px;
+    object-fit: cover;
+    border-radius: 3px;
+    background: #333;
+    flex-shrink: 0;
+  }
+  .cs-product-card__info {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 4px;
+    min-width: 0;
+  }
+  .cs-product-card__title {
+    font-family: var(--cs-font);
+    font-size: 13.5px;
+    font-weight: 600;
+    color: var(--cs-white);
+    line-height: 1.3;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .cs-product-card__price {
+    font-family: var(--cs-font);
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--cs-red);
+  }
+  .cs-product-card__arrow {
+    margin-left: auto;
+    align-self: center;
+    color: var(--cs-muted);
+    font-size: 16px;
+    flex-shrink: 0;
+  }
+
+  /* ── FALLBACK STATE ── */
+  .cs-fallback { display: none; }
+  .cs-fallback.is-visible { display: block; }
+  .cs-fallback__text {
+    font-family: var(--cs-font);
+    font-size: 14px;
+    color: var(--cs-muted);
+    margin-bottom: 14px;
+    line-height: 1.6;
+  }
+  .cs-fallback__text strong { color: var(--cs-white); }
+  .cs-btn-fallback {
+    display: inline-block;
+    width: 100%;
+    padding: 13px 20px;
+    background: transparent;
+    border: 1px solid rgba(255,255,255,0.25);
+    border-radius: 4px;
+    color: var(--cs-white);
+    font-family: var(--cs-font);
+    font-size: 14px;
+    font-weight: 600;
+    text-align: center;
+    text-decoration: none;
+    cursor: pointer;
+    transition: border-color 0.2s, background 0.2s;
+    box-sizing: border-box;
+  }
+  .cs-btn-fallback:hover {
+    border-color: rgba(255,255,255,0.5);
+    background: rgba(255,255,255,0.05);
+  }
+
+  /* ── NEW SEARCH LINK ── */
+  .cs-new-search {
+    font-family: var(--cs-font);
+    font-size: 12px;
+    color: var(--cs-muted);
+    text-align: center;
+    margin-top: 16px;
+    cursor: pointer;
+    background: none;
+    border: none;
+    width: 100%;
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
+  .cs-new-search:hover { color: var(--cs-white); }
+
+  /* ── VERTICAL TAB ── */
+  .cs-tab {
+    position: fixed;
+    right: 0;
+    top: 50%;
+    transform: translateY(-50%);
+    z-index: 9997;
+    background: var(--cs-dark);
+    border-radius: 4px 0 0 4px;
+    cursor: pointer;
+    padding: 16px 10px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    border: 1px solid rgba(255,255,255,0.08);
+    border-right: none;
+    transition: background 0.2s;
+  }
+  .cs-tab:hover { background: #2a2a2a; }
+  .cs-tab__dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--cs-green);
+    flex-shrink: 0;
+  }
+  .cs-tab__text {
+    font-family: var(--cs-font);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: rgba(255,255,255,0.7);
+    writing-mode: vertical-rl;
+    transform: rotate(180deg);
+    white-space: nowrap;
+  }
+
+  /* ── SEARCH BAR TRIGGER ── */
+  .cs-bar-trigger {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+  }
+  .cs-bar-trigger__text {
+    font-family: var(--cs-font);
+    font-size: 13px;
+    color: rgba(255,255,255,0.55);
+    white-space: nowrap;
+  }
+  .cs-bar-trigger__btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: transparent;
+    border: 1px solid rgba(255,255,255,0.3);
+    border-radius: 100px;
+    color: var(--cs-white);
+    font-family: var(--cs-font);
+    font-size: 12px;
+    font-weight: 600;
+    padding: 6px 14px;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: border-color 0.2s, background 0.2s;
+  }
+  .cs-bar-trigger__btn:hover {
+    border-color: rgba(255,255,255,0.6);
+    background: rgba(255,255,255,0.06);
+  }
+  .cs-bar-trigger__btn svg {
+    width: 12px;
+    height: 12px;
+    flex-shrink: 0;
+  }
+
+  /* ── MOBILE ── */
+  @media (max-width: 749px) {
+    .cs-drawer {
+      width: 100vw;
+      --cs-drawer-w: 100vw;
+    }
+    .cs-drawer__heading { font-size: 22px; }
+    .cs-tab { display: none; }
+  }
+</style>
+
+<!-- Overlay -->
+<div class="cs-overlay" id="cs-overlay" aria-hidden="true"></div>
+
+<!-- Vertical Tab (always visible) -->
+<button class="cs-tab" id="cs-tab-btn" aria-label="Open AI Vehicle Search" aria-expanded="false" aria-controls="cs-drawer">
+  <span class="cs-tab__dot"></span>
+  <span class="cs-tab__text">AI Vehicle Search</span>
+</button>
+
+<!-- Search Bar Trigger (inject into Horizon theme's vehicle search bar via JS) -->
+<div class="cs-bar-trigger" id="cs-bar-trigger" style="display:none;">
+  <span class="cs-bar-trigger__text">Not what you were looking for?</span>
+  <button class="cs-bar-trigger__btn" id="cs-bar-trigger-btn" aria-label="Open AI search">
+    <svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <path d="M8 1L10 6H15L11 9.5L12.5 15L8 11.5L3.5 15L5 9.5L1 6H6L8 1Z" fill="currentColor"/>
+    </svg>
+    Ask AI instead
+  </button>
+</div>
+
+<!-- AI Search Drawer -->
+<div class="cs-drawer" id="cs-drawer" role="dialog" aria-modal="true" aria-label="AI Vehicle Search">
+
+  <!-- Header -->
+  <div class="cs-drawer__header">
+    <div class="cs-drawer__label">
+      <span class="cs-drawer__dot"></span>
+      AI Vehicle Search
+    </div>
+    <button class="cs-drawer__close" id="cs-close-btn" aria-label="Close AI search">
+      <svg viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <path d="M1 1L13 13M13 1L1 13" stroke="white" stroke-width="1.5" stroke-linecap="round"/>
+      </svg>
+    </button>
+  </div>
+
+  <!-- Body -->
+  <div class="cs-drawer__body">
+
+    <!-- Intro (shown when idle or on new search) -->
+    <div id="cs-intro">
+      <h2 class="cs-drawer__heading">Not what you were looking for?</h2>
+      <p class="cs-drawer__subtext">
+        Tell us in plain English the make, model, and year of your vehicle — and what type of camera you need.
+      </p>
+
+      <div class="cs-textarea-wrap">
+        <textarea
+          class="cs-textarea"
+          id="cs-query"
+          rows="5"
+          placeholder="{{ example_query }}"
+          aria-label="Describe what you're looking for"
+          maxlength="300"
+        ></textarea>
+      </div>
+
+      <button class="cs-btn-primary" id="cs-search-btn" type="button">
+        Find My Camera &rarr;
+      </button>
+
+      <div class="cs-chips">
+        <button class="cs-chip" id="cs-chip-example" type="button">
+          Try the example above
+        </button>
+        <button class="cs-chip" id="cs-chip-no-stock" type="button">
+          Try a vehicle we don't stock
+        </button>
+      </div>
+    </div>
+
+    <!-- Loading -->
+    <div class="cs-loading" id="cs-loading" aria-live="polite" aria-busy="true">
+      <div class="cs-spinner"></div>
+      <p class="cs-loading__text">Finding the best match&hellip;</p>
+    </div>
+
+    <!-- Results -->
+    <div class="cs-results" id="cs-results" aria-live="polite">
+      <hr class="cs-divider">
+      <p class="cs-results__summary" id="cs-results-summary"></p>
+      <div class="cs-product-list" id="cs-product-list"></div>
+      <button class="cs-new-search" id="cs-new-search-btn" type="button">
+        Try a different search
+      </button>
+    </div>
+
+    <!-- Fallback -->
+    <div class="cs-fallback" id="cs-fallback" aria-live="polite">
+      <hr class="cs-divider">
+      <p class="cs-fallback__text" id="cs-fallback-text"></p>
+      <a class="cs-btn-fallback" id="cs-fallback-link" href="#">
+        Search our full catalog &rarr;
+      </a>
+      <button class="cs-new-search" id="cs-fallback-new-btn" type="button">
+        Try a different search
+      </button>
+    </div>
+
+  </div><!-- /body -->
+</div><!-- /drawer -->
+
+<script>
+(function () {
+  'use strict';
+
+  var API_URL    = {{ section.settings.api_url | json }};
+  var EXAMPLE    = {{ example_query | json }};
+  var NO_STOCK   = "I need a camera for a 2019 Lamborghini Urus";
+
+  // Elements
+  var overlay       = document.getElementById('cs-overlay');
+  var drawer        = document.getElementById('cs-drawer');
+  var tabBtn        = document.getElementById('cs-tab-btn');
+  var closeBtn      = document.getElementById('cs-close-btn');
+  var barTriggerBtn = document.getElementById('cs-bar-trigger-btn');
+  var queryEl       = document.getElementById('cs-query');
+  var searchBtn     = document.getElementById('cs-search-btn');
+  var chipExample   = document.getElementById('cs-chip-example');
+  var chipNoStock   = document.getElementById('cs-chip-no-stock');
+  var loadingEl     = document.getElementById('cs-loading');
+  var resultsEl     = document.getElementById('cs-results');
+  var resultsSummary= document.getElementById('cs-results-summary');
+  var productList   = document.getElementById('cs-product-list');
+  var fallbackEl    = document.getElementById('cs-fallback');
+  var fallbackText  = document.getElementById('cs-fallback-text');
+  var fallbackLink  = document.getElementById('cs-fallback-link');
+  var newSearchBtn  = document.getElementById('cs-new-search-btn');
+  var fallbackNewBtn= document.getElementById('cs-fallback-new-btn');
+  var introEl       = document.getElementById('cs-intro');
+
+  // ── Inject bar trigger into Horizon's vehicle search bar ──
+  function injectBarTrigger() {
+    var barTriggerContainer = document.getElementById('cs-bar-trigger');
+    // Horizon theme search bar selector — adjust if theme HTML differs
+    var searchBar = document.querySelector('.vehicle-search__bar, .predictive-search__form, [data-section-type="header"]');
+    if (searchBar) {
+      barTriggerContainer.style.display = 'inline-flex';
+      searchBar.appendChild(barTriggerContainer);
+    }
+  }
+
+  // ── Drawer open/close ──
+  function openDrawer() {
+    drawer.classList.add('is-open');
+    overlay.classList.add('is-open');
+    tabBtn.setAttribute('aria-expanded', 'true');
+    document.body.style.overflow = 'hidden';
+    queryEl.focus();
+  }
+
+  function closeDrawer() {
+    drawer.classList.remove('is-open');
+    overlay.classList.remove('is-open');
+    tabBtn.setAttribute('aria-expanded', 'false');
+    document.body.style.overflow = '';
+  }
+
+  // ── State helpers ──
+  function showState(state) {
+    loadingEl.classList.remove('is-visible');
+    resultsEl.classList.remove('is-visible');
+    fallbackEl.classList.remove('is-visible');
+    introEl.style.display = 'block';
+
+    if (state === 'loading') {
+      introEl.style.display = 'none';
+      loadingEl.classList.add('is-visible');
+    } else if (state === 'results') {
+      introEl.style.display = 'none';
+      resultsEl.classList.add('is-visible');
+    } else if (state === 'fallback') {
+      introEl.style.display = 'none';
+      fallbackEl.classList.add('is-visible');
+    }
+    // 'idle' shows intro
+  }
+
+  function resetToIdle() {
+    showState('idle');
+    queryEl.value = '';
+    queryEl.focus();
+  }
+
+  // ── Render product cards ──
+  function renderProducts(products, fields) {
+    // Build summary line
+    var parts = [fields.year, fields.make, fields.model].filter(Boolean);
+    var summary = parts.length
+      ? 'Results for <span>' + parts.join(' ') + '</span>'
+      : 'Search results';
+    resultsSummary.innerHTML = summary;
+
+    // Render cards
+    productList.innerHTML = '';
+    products.forEach(function (p) {
+      var card = document.createElement('a');
+      card.className = 'cs-product-card';
+      card.href = p.url || '#';
+
+      var img = p.image
+        ? '<img class="cs-product-card__img" src="' + p.image + '" alt="' + p.title + '" loading="lazy">'
+        : '<div class="cs-product-card__img"></div>';
+
+      var price = p.price
+        ? '<span class="cs-product-card__price">$' + parseFloat(p.price).toFixed(2) + '</span>'
+        : '';
+
+      card.innerHTML =
+        img +
+        '<div class="cs-product-card__info">' +
+          '<span class="cs-product-card__title">' + p.title + '</span>' +
+          price +
+        '</div>' +
+        '<span class="cs-product-card__arrow">&rarr;</span>';
+
+      productList.appendChild(card);
+    });
+
+    showState('results');
+  }
+
+  // ── Render fallback ──
+  function renderFallback(searchQuery, fallbackUrl) {
+    var msg = searchQuery
+      ? 'We couldn\'t find an exact match for <strong>"' + searchQuery + '"</strong>. Try browsing our full catalog.'
+      : 'We couldn\'t find an exact match. Try browsing our full catalog.';
+    fallbackText.innerHTML = msg;
+    fallbackLink.href = fallbackUrl || ('/search?q=' + encodeURIComponent(searchQuery || ''));
+    showState('fallback');
+  }
+
+  // ── API call ──
+  function runSearch() {
+    var sentence = queryEl.value.trim();
+    if (!sentence) { queryEl.focus(); return; }
+
+    showState('loading');
+    searchBtn.disabled = true;
+
+    fetch(API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sentence: sentence })
+    })
+    .then(function (r) {
+      if (!r.ok) throw new Error('API error ' + r.status);
+      return r.json();
+    })
+    .then(function (data) {
+      searchBtn.disabled = false;
+      if (data.isFallback || !data.products || data.products.length === 0) {
+        renderFallback(data.searchQuery, data.fallbackUrl);
+      } else {
+        renderProducts(data.products, data.fields || {});
+      }
+    })
+    .catch(function (err) {
+      searchBtn.disabled = false;
+      console.error('AI search error:', err);
+      renderFallback(queryEl.value.trim(), null);
+    });
+  }
+
+  // ── Event listeners ──
+  tabBtn.addEventListener('click', openDrawer);
+  if (barTriggerBtn) barTriggerBtn.addEventListener('click', openDrawer);
+  closeBtn.addEventListener('click', closeDrawer);
+  overlay.addEventListener('click', closeDrawer);
+
+  searchBtn.addEventListener('click', runSearch);
+  queryEl.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) runSearch();
+  });
+
+  chipExample.addEventListener('click', function () {
+    queryEl.value = EXAMPLE;
+    queryEl.focus();
+  });
+  chipNoStock.addEventListener('click', function () {
+    queryEl.value = NO_STOCK;
+    queryEl.focus();
+  });
+
+  newSearchBtn.addEventListener('click', resetToIdle);
+  fallbackNewBtn.addEventListener('click', resetToIdle);
+
+  // Escape key closes drawer
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && drawer.classList.contains('is-open')) closeDrawer();
+  });
+
+  // Init
+  document.addEventListener('DOMContentLoaded', injectBarTrigger);
+
+})();
+</script>
+
+{% schema %}
+{
+  "name": "AI Vehicle Search",
+  "tag": null,
+  "settings": [
+    {
+      "type": "text",
+      "id": "api_url",
+      "label": "Vercel API endpoint",
+      "placeholder": "https://your-project.vercel.app/api/search",
+      "info": "The full URL of your deployed Vercel serverless function."
+    },
+    {
+      "type": "textarea",
+      "id": "example_query",
+      "label": "Example query (shown as placeholder)",
+      "default": "I'm looking to relocate the rear view mirror camera from the factory installed third brake light to the back of the truck on my 2024 GMC Sierra"
+    }
+  ],
+  "presets": [
+    {
+      "name": "AI Vehicle Search"
+    }
+  ]
+}
+{% endschema %}
