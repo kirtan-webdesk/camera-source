@@ -1,7 +1,27 @@
 // app.js — Vercel Serverless Function
 // AI query parsing + normalization. Shopify layer pending store access.
 
+import { Ratelimit } from '@upstash/ratelimit';
+import { Redis }     from '@upstash/redis';
+
 const ALLOW_ORIGIN = '*'; // TODO: lock to production Shopify domain before launch
+
+// ---------------- RATE LIMITER ----------------
+// 10 requests per IP per minute (sliding window).
+// Requires UPSTASH_REDIS_REST_URL + UPSTASH_REDIS_REST_TOKEN in Vercel env vars.
+// If those vars are absent the limiter is skipped — set them before going live.
+let ratelimit = null;
+if (process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN) {
+  ratelimit = new Ratelimit({
+    redis: new Redis({
+      url:   process.env.UPSTASH_REDIS_REST_URL,
+      token: process.env.UPSTASH_REDIS_REST_TOKEN,
+    }),
+    limiter: Ratelimit.slidingWindow(10, '1 m'),
+    analytics: true,
+    prefix: 'cs_ai_search',
+  });
+}
 
 // ---------------- SYSTEM PROMPT (must be declared before handler) ----------------
 const SYSTEM_PROMPT = `
@@ -63,7 +83,7 @@ const MODEL_MAP = {
   "1500":        "1500",
   "2500":        "2500",
   "3500":        "3500",
-  "f150":        "F-150",   // normalize to hyphenated form (catalog convention)
+  "f150":        "F-150",
   "f-150":       "F-150",
   "super duty":  "Super Duty",
   "f-250":       "Super Duty",
@@ -164,6 +184,13 @@ function normalizeFields(raw) {
   };
 }
 
+// ---------------- GET CLIENT IP ----------------
+function getClientIp(req) {
+  const forwarded = req.headers['x-forwarded-for'];
+  if (forwarded) return forwarded.split(',')[0].trim();
+  return req.socket?.remoteAddress || 'unknown';
+}
+
 // ---------------- MAIN HANDLER ----------------
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', ALLOW_ORIGIN);
@@ -173,11 +200,28 @@ export default async function handler(req, res) {
   if (req.method === 'OPTIONS') return res.status(204).end();
   if (req.method !== 'POST')   return res.status(405).json({ error: 'Method not allowed' });
 
+  // ---------------- RATE LIMITING ----------------
+  if (ratelimit) {
+    const ip = getClientIp(req);
+    const { success, limit, remaining, reset } = await ratelimit.limit(ip);
+
+    res.setHeader('X-RateLimit-Limit',     limit);
+    res.setHeader('X-RateLimit-Remaining', remaining);
+    res.setHeader('X-RateLimit-Reset',     reset);
+
+    if (!success) {
+      return res.status(429).json({
+        error: 'Too many requests. Please wait a moment and try again.',
+        retryAfter: Math.ceil((reset - Date.now()) / 1000)
+      });
+    }
+  }
+
   try {
     const { sentence } = req.body || {};
 
-    if (!sentence)              return res.status(400).json({ error: 'Missing sentence' });
-    if (sentence.length > 300)  return res.status(400).json({ error: 'Query too long (max 300 characters)' });
+    if (!sentence)             return res.status(400).json({ error: 'Missing sentence' });
+    if (sentence.length > 300) return res.status(400).json({ error: 'Query too long (max 300 characters)' });
 
     let fields;
     let usedFallback = false;
@@ -229,8 +273,7 @@ export default async function handler(req, res) {
     //   3. Set `products` below and remove the placeholder
     const products = [];
 
-    const noResults  = products.length === 0;
-    const isFallback = usedFallback || noResults;
+    const isFallback = usedFallback || products.length === 0;
     const fallbackUrl = `/search?q=${encodeURIComponent(searchQuery)}`;
 
     return res.status(200).json({
