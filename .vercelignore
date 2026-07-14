@@ -4,6 +4,5 @@ theme/
 prisma/
 prisma.config.ts
 tsconfig.json
-app.js
 test-scenario.mjs
 dist/

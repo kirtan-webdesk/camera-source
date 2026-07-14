@@ -1,4 +1,1 @@
-{
-  "buildCommand": null,
-  "installCommand": "npm install --production"
-}
+{}
