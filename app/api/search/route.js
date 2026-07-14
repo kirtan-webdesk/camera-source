@@ -1,10 +1,7 @@
-// api/search.js — Vercel Serverless Function
-// Vercel auto-routes this to /api/search — no vercel.json config needed.
-
 import { Ratelimit } from '@upstash/ratelimit';
 import { Redis }     from '@upstash/redis';
 
-const ALLOW_ORIGIN = '*'; // TODO: lock to production Shopify domain before launch
+const ALLOW_ORIGIN = '*';
 
 // ---------------- RATE LIMITER ----------------
 let ratelimit = null;
@@ -356,39 +353,42 @@ function normalizeFields(raw) {
   };
 }
 
-function getClientIp(req) {
-  const forwarded = req.headers['x-forwarded-for'];
+function getClientIp(request) {
+  const forwarded = request.headers.get('x-forwarded-for');
   if (forwarded) return forwarded.split(',')[0].trim();
-  return req.socket?.remoteAddress || 'unknown';
+  return 'unknown';
 }
 
-// ---------------- MAIN HANDLER ----------------
-export default async function handler(req, res) {
-  res.setHeader('Access-Control-Allow-Origin', ALLOW_ORIGIN);
-  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+const corsHeaders = {
+  'Access-Control-Allow-Origin':  ALLOW_ORIGIN,
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type',
+};
 
-  if (req.method === 'OPTIONS') return res.status(204).end();
-  if (req.method !== 'POST')   return res.status(405).json({ error: 'Method not allowed' });
+// ---------------- ROUTE HANDLERS (App Router) ----------------
+export async function OPTIONS() {
+  return new Response(null, { status: 204, headers: corsHeaders });
+}
 
+export async function POST(request) {
   if (ratelimit) {
-    const ip = getClientIp(req);
+    const ip = getClientIp(request);
     const { success, limit, remaining, reset } = await ratelimit.limit(ip);
-    res.setHeader('X-RateLimit-Limit',     limit);
-    res.setHeader('X-RateLimit-Remaining', remaining);
-    res.setHeader('X-RateLimit-Reset',     reset);
     if (!success) {
-      return res.status(429).json({
-        error: 'Too many requests. Please wait a moment and try again.',
-        retryAfter: Math.ceil((reset - Date.now()) / 1000),
-      });
+      return Response.json(
+        { error: 'Too many requests. Please wait a moment and try again.', retryAfter: Math.ceil((reset - Date.now()) / 1000) },
+        { status: 429, headers: { ...corsHeaders, 'X-RateLimit-Limit': String(limit), 'X-RateLimit-Remaining': String(remaining), 'X-RateLimit-Reset': String(reset) } }
+      );
     }
   }
 
   try {
-    const { sentence } = req.body || {};
-    if (!sentence)             return res.status(400).json({ error: 'Missing sentence' });
-    if (sentence.length > 300) return res.status(400).json({ error: 'Query too long (max 300 characters)' });
+    let body;
+    try { body = await request.json(); } catch { body = {}; }
+
+    const { sentence } = body;
+    if (!sentence)             return Response.json({ error: 'Missing sentence' },                          { status: 400, headers: corsHeaders });
+    if (sentence.length > 300) return Response.json({ error: 'Query too long (max 300 characters)' },      { status: 400, headers: corsHeaders });
 
     let fields, usedFallback = false;
 
@@ -431,7 +431,6 @@ export default async function handler(req, res) {
       fields.model = MODEL_MAP[fields.model?.toLowerCase()] || fields.model;
     }
 
-    // Server-side dataset validation — overrides AI if it hallucinated IN
     if (fields.context === "IN" && fields.make && fields.model) {
       const makeEntry  = DATASET[fields.make];
       const modelEntry = makeEntry ? makeEntry[fields.model] : null;
@@ -447,16 +446,14 @@ export default async function handler(req, res) {
     const searchQuery = [fields.year, fields.make, fields.model, ...(fields.keywords || [])]
       .filter(Boolean).join(" ");
 
-    // TODO: replace with Shopify Storefront API query once store access is available
     const products = [];
-
     const isFallback = fields.context === "OUT" || usedFallback || products.length === 0;
     const fallbackUrl = `/search?q=${encodeURIComponent(searchQuery)}`;
 
-    return res.status(200).json({ fields, searchQuery, products, isFallback, fallbackUrl });
+    return Response.json({ fields, searchQuery, products, isFallback, fallbackUrl }, { headers: corsHeaders });
 
   } catch (err) {
     console.error("Unhandled error:", err);
-    return res.status(500).json({ error: 'Server error', detail: String(err) });
+    return Response.json({ error: 'Server error', detail: String(err) }, { status: 500, headers: corsHeaders });
   }
 }
