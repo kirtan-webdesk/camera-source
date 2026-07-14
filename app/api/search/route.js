@@ -412,9 +412,10 @@ export async function POST(request) {
 
       fields = normalizeFields(JSON.parse(ai.choices[0].message.content));
 
+      const fallback = fallbackParse(sentence);
+      fields.keywords = fallback.keywords;
+
       if (fields.context === "OUT") {
-        const fallback = fallbackParse(sentence);
-        fields.keywords = fallback.keywords;
         if (!fields.make)  fields.make  = fallback.make;
         if (!fields.model) fields.model = fallback.model;
         if (!fields.year)  fields.year  = fallback.year;
