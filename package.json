@@ -1,19 +1,19 @@
 {
   "name": "camera-source",
   "version": "1.0.0",
-  "type": "module",
   "scripts": {
-    "dev": "nodemon --watch src --ext ts --exec ts-node src/server.ts",
-    "dev:client": "npm run dev --prefix client",
-    "build:client": "npm run build --prefix client",
-    "typecheck": "tsc --noEmit",
-    "db:migrate": "prisma migrate dev",
-    "db:generate": "prisma generate",
-    "db:studio": "prisma studio"
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "dev:express": "nodemon --watch src --ext ts --exec ts-node src/server.ts",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@upstash/ratelimit": "^2.0.8",
-    "@upstash/redis": "^1.38.0"
+    "@upstash/redis": "^1.38.0",
+    "next": "^16.2.10",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7"
   },
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",
