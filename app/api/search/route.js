@@ -449,6 +449,7 @@ export async function POST(request) {
 
     // ---------------- SHOPIFY STOREFRONT API ----------------
     let products = [];
+    let _shopifyDebug = null;
     try {
       const shopDomain = process.env.SHOPIFY_STORE_DOMAIN;
       const shopToken  = process.env.SHOPIFY_STOREFRONT_TOKEN;
@@ -484,6 +485,9 @@ export async function POST(request) {
           }),
         }).then(r => r.json());
 
+        _shopifyDebug = gql;
+        console.log("Shopify raw response:", JSON.stringify(gql));
+
         products = (gql?.data?.search?.edges || []).map(({ node }) => ({
           id:       node.id,
           title:    node.title,
@@ -494,6 +498,8 @@ export async function POST(request) {
           price:    node.priceRange?.minVariantPrice?.amount       || '',
           currency: node.priceRange?.minVariantPrice?.currencyCode || 'CAD',
         }));
+
+        if (gql?.errors) console.error("Shopify errors:", JSON.stringify(gql.errors));
       }
     } catch (e) {
       console.error("Shopify search failed:", e?.message || e);
@@ -502,7 +508,7 @@ export async function POST(request) {
     const isFallback = fields.context === "OUT" || usedFallback || products.length === 0;
     const fallbackUrl = `https://${process.env.SHOPIFY_STORE_DOMAIN}/search?q=${encodeURIComponent(searchQuery)}`;
 
-    return Response.json({ fields, searchQuery, products, isFallback, fallbackUrl }, { headers: corsHeaders });
+    return Response.json({ fields, searchQuery, products, isFallback, fallbackUrl, _shopifyDebug }, { headers: corsHeaders });
 
   } catch (err) {
     console.error("Unhandled error:", err);
