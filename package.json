@@ -2,11 +2,10 @@
   "name": "camera-source",
   "version": "1.0.0",
   "scripts": {
+    "start": "node api/search.js",
     "dev": "nodemon --watch src --ext ts --exec ts-node src/server.ts",
     "dev:client": "npm run dev --prefix client",
-    "build": "rimraf dist && tsc",
     "build:client": "npm run build --prefix client",
-    "start": "node dist/server.js",
     "typecheck": "tsc --noEmit",
     "typecheck:client": "npm run typecheck --prefix client",
     "db:migrate": "prisma migrate dev",
