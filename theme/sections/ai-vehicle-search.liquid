@@ -5,7 +5,7 @@
   Requires: Vercel endpoint set in section settings.
 {%- endcomment -%}
 
-{%- assign api_url = section.settings.api_url -%}
+{%- assign api_url = section.settings.api_url | default: '' -%}
 {%- assign example_query = section.settings.example_query | default: "I'm looking to relocate the rear view mirror camera from the factory installed third brake light to the back of the truck on my 2024 GMC Sierra" -%}
 
 <style>
@@ -569,7 +569,7 @@
 (function () {
   'use strict';
 
-  var API_URL    = {{ section.settings.api_url | json }};
+  var API_URL    = {{ section.settings.api_url | default: '' | json }};
   var EXAMPLE    = {{ example_query | json }};
   var NO_STOCK   = "I need a camera for a 2019 Lamborghini Urus";
 
@@ -764,7 +764,6 @@
 {% schema %}
 {
   "name": "AI Vehicle Search",
-  "tag": null,
   "settings": [
     {
       "type": "text",
