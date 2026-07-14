@@ -460,6 +460,37 @@
     }
     .cs-drawer__heading { font-size: 22px; }
     .cs-tab { display: none; }
+    .cs-mobile-btn { display: flex; }
+  }
+  /* ── MOBILE FLOATING BUTTON ── */
+  .cs-mobile-btn {
+    display: none;
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    z-index: 9997;
+    align-items: center;
+    gap: 8px;
+    background: var(--cs-red);
+    color: var(--cs-white);
+    border: none;
+    border-radius: 100px;
+    padding: 12px 20px;
+    font-family: var(--cs-font);
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    cursor: pointer;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+    transition: background 0.2s;
+  }
+  .cs-mobile-btn:hover { background: var(--cs-red-hover); }
+  .cs-mobile-btn__dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--cs-green);
+    flex-shrink: 0;
   }
 </style>
 
@@ -470,6 +501,12 @@
 <button class="cs-tab" id="cs-tab-btn" aria-label="Open AI Vehicle Search" aria-expanded="false" aria-controls="cs-drawer">
   <span class="cs-tab__dot"></span>
   <span class="cs-tab__text">AI Vehicle Search</span>
+</button>
+
+<!-- Mobile floating button (visible only on mobile, tab is hidden) -->
+<button class="cs-mobile-btn" id="cs-mobile-btn" aria-label="Open AI Vehicle Search">
+  <span class="cs-mobile-btn__dot"></span>
+  AI Search
 </button>
 
 <!-- Search Bar Trigger (inject into Horizon theme's vehicle search bar via JS) -->
@@ -695,6 +732,39 @@
     showState('fallback');
   }
 
+  // ── Shopify AJAX product search ──
+  function searchShopify(searchQuery, fields, fallbackUrl) {
+    fetch('/search.json?q=' + encodeURIComponent(searchQuery) + '&type=product&limit=10')
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        searchBtn.disabled = false;
+        var results = data.results || [];
+        if (results.length === 0) {
+          renderFallback(searchQuery, fallbackUrl);
+          return;
+        }
+        var products = results.map(function (p) {
+          var image = '';
+          if (p.featured_image) {
+            image = typeof p.featured_image === 'string'
+              ? p.featured_image
+              : (p.featured_image.url || '');
+          }
+          return {
+            title: p.title,
+            url:   p.url || ('/products/' + p.handle),
+            image: image,
+            price: p.price ? (p.price / 100).toFixed(2) : ''
+          };
+        });
+        renderProducts(products, fields);
+      })
+      .catch(function () {
+        searchBtn.disabled = false;
+        renderFallback(searchQuery, fallbackUrl);
+      });
+  }
+
   // ── API call ──
   function runSearch() {
     var sentence = queryEl.value.trim();
@@ -713,22 +783,24 @@
       return r.json();
     })
     .then(function (data) {
-      searchBtn.disabled = false;
-      if (data.isFallback || !data.products || data.products.length === 0) {
-        renderFallback(data.searchQuery, data.fallbackUrl);
-      } else {
-        renderProducts(data.products, data.fields || {});
+      var fallbackUrl = data.fallbackUrl || ('/search?q=' + encodeURIComponent(data.searchQuery || sentence));
+      if (!data.searchQuery) {
+        searchBtn.disabled = false;
+        renderFallback(sentence, fallbackUrl);
+        return;
       }
+      searchShopify(data.searchQuery, data.fields || {}, fallbackUrl);
     })
     .catch(function (err) {
       searchBtn.disabled = false;
       console.error('AI search error:', err);
-      renderFallback(queryEl.value.trim(), null);
+      renderFallback(sentence, '/search?q=' + encodeURIComponent(sentence));
     });
   }
 
   // ── Event listeners ──
   tabBtn.addEventListener('click', openDrawer);
+  document.getElementById('cs-mobile-btn').addEventListener('click', openDrawer);
   if (barTriggerBtn) barTriggerBtn.addEventListener('click', openDrawer);
   closeBtn.addEventListener('click', closeDrawer);
   overlay.addEventListener('click', closeDrawer);
