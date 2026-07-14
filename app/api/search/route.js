@@ -446,9 +446,60 @@ export async function POST(request) {
     const searchQuery = [fields.year, fields.make, fields.model, ...(fields.keywords || [])]
       .filter(Boolean).join(" ");
 
-    const products = [];
+    // ---------------- SHOPIFY STOREFRONT API ----------------
+    let products = [];
+    try {
+      const shopDomain = process.env.SHOPIFY_STORE_DOMAIN;
+      const shopToken  = process.env.SHOPIFY_STOREFRONT_TOKEN;
+
+      if (shopDomain && shopToken && searchQuery) {
+        const gql = await fetch(`https://${shopDomain}/api/2024-01/graphql.json`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Shopify-Storefront-Access-Token': shopToken,
+          },
+          body: JSON.stringify({
+            query: `
+              query SearchProducts($q: String!) {
+                search(query: $q, first: 10, types: PRODUCT) {
+                  edges {
+                    node {
+                      ... on Product {
+                        id
+                        title
+                        handle
+                        featuredImage { url altText }
+                        priceRange {
+                          minVariantPrice { amount currencyCode }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            `,
+            variables: { q: searchQuery },
+          }),
+        }).then(r => r.json());
+
+        products = (gql?.data?.search?.edges || []).map(({ node }) => ({
+          id:       node.id,
+          title:    node.title,
+          handle:   node.handle,
+          url:      `https://${shopDomain}/products/${node.handle}`,
+          image:    node.featuredImage?.url    || '',
+          imageAlt: node.featuredImage?.altText || node.title,
+          price:    node.priceRange?.minVariantPrice?.amount       || '',
+          currency: node.priceRange?.minVariantPrice?.currencyCode || 'CAD',
+        }));
+      }
+    } catch (e) {
+      console.error("Shopify search failed:", e?.message || e);
+    }
+
     const isFallback = fields.context === "OUT" || usedFallback || products.length === 0;
-    const fallbackUrl = `/search?q=${encodeURIComponent(searchQuery)}`;
+    const fallbackUrl = `https://${process.env.SHOPIFY_STORE_DOMAIN}/search?q=${encodeURIComponent(searchQuery)}`;
 
     return Response.json({ fields, searchQuery, products, isFallback, fallbackUrl }, { headers: corsHeaders });
 
