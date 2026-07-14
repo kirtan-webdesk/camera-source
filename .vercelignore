@@ -6,4 +6,4 @@ prisma.config.ts
 tsconfig.json
 test-scenario.mjs
 dist/
-api/
+api/search.js
