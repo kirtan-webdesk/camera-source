@@ -1,8 +1,10 @@
 {
   "name": "camera-source",
   "version": "1.0.0",
+  "type": "module",
   "scripts": {
     "start": "node api/search.js",
+    "postinstall": "node --input-type=commonjs -e \"if (process.env.VERCEL) process.exit(0); require('child_process').execSync('prisma generate', {stdio:'inherit'})\"",
     "dev": "nodemon --watch src --ext ts --exec ts-node src/server.ts",
     "dev:client": "npm run dev --prefix client",
     "build:client": "npm run build --prefix client",
@@ -19,7 +21,6 @@
   "license": "ISC",
   "description": "",
   "dependencies": {
-    "@prisma/client": "^7.8.0",
     "@upstash/ratelimit": "^2.0.8",
     "@upstash/redis": "^1.38.0",
     "bcryptjs": "^3.0.3",
@@ -33,6 +34,7 @@
     "uuid": "^14.0.1"
   },
   "devDependencies": {
+    "@prisma/client": "^7.8.0",
     "@types/bcryptjs": "^2.4.6",
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",
