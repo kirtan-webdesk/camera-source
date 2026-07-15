@@ -732,13 +732,13 @@
     showState('fallback');
   }
 
-  // ── Shopify AJAX product search ──
+  // ── Shopify Predictive Search (real-time, no index lag) ──
   function searchShopify(searchQuery, fields, fallbackUrl) {
-    fetch('/search.json?q=' + encodeURIComponent(searchQuery) + '&type=product&limit=10')
+    fetch('/search/suggest.json?q=' + encodeURIComponent(searchQuery) + '&resources[type]=product&resources[limit]=10')
       .then(function (r) { return r.json(); })
       .then(function (data) {
         searchBtn.disabled = false;
-        var results = data.results || [];
+        var results = (data.resources && data.resources.results && data.resources.results.products) || [];
         if (results.length === 0) {
           renderFallback(searchQuery, fallbackUrl);
           return;
@@ -750,11 +750,17 @@
               ? p.featured_image
               : (p.featured_image.url || '');
           }
+          // price is already a formatted string (e.g. "CAD 149.99") in predictive search
+          var price = '';
+          if (p.price) {
+            var num = parseFloat(String(p.price).replace(/[^0-9.]/g, ''));
+            price = isNaN(num) ? '' : num.toFixed(2);
+          }
           return {
             title: p.title,
             url:   p.url || ('/products/' + p.handle),
             image: image,
-            price: p.price ? (p.price / 100).toFixed(2) : ''
+            price: price
           };
         });
         renderProducts(products, fields);

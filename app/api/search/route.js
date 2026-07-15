@@ -505,8 +505,8 @@ export async function POST(request) {
       console.error("Shopify search failed:", e?.message || e);
     }
 
-    const isFallback = fields.context === "OUT" || usedFallback || products.length === 0;
-    const fallbackUrl = `https://${process.env.SHOPIFY_STORE_DOMAIN}/search?q=${encodeURIComponent(searchQuery)}`;
+    const isFallback = fields.context === "OUT" || usedFallback;
+    const fallbackUrl = `/search?q=${encodeURIComponent(searchQuery)}`;
 
     return Response.json({ fields, searchQuery, products, isFallback, fallbackUrl, _shopifyDebug }, { headers: corsHeaders });
 
