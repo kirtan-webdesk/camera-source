@@ -444,7 +444,9 @@ export async function POST(request) {
       }
     }
 
-    const searchQuery = [fields.year, fields.make, fields.model, ...(fields.keywords || [])]
+    // Year is excluded from the text query — passed as a metafield filter in the URL instead.
+    // Shopify titles use ranges ("2014-2018") so a specific year like "2015" won't match by text.
+    const searchQuery = [fields.make, fields.model, ...(fields.keywords || [])]
       .filter(Boolean).join(" ");
 
     // ---------------- SHOPIFY STOREFRONT API ----------------

@@ -751,7 +751,10 @@
     })
     .then(function (data) {
       var q = data.searchQuery || sentence;
-      window.location.href = '/search?q=' + encodeURIComponent(q) + '&type=product';
+      var url = '/search?q=' + encodeURIComponent(q) + '&type=product';
+      var year = data.fields && data.fields.year;
+      if (year) url += '&filter.p.m.magento.year_filter=' + encodeURIComponent(year);
+      window.location.href = url;
     })
     .catch(function () {
       window.location.href = '/search?q=' + encodeURIComponent(sentence) + '&type=product';
